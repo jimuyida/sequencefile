@@ -67,10 +67,18 @@ func (sequenceFile *SequenceFile) Dir2Seq(dir string,seq string) (error){
 	wg.Add(1)
 	num, sz := GetFileSize(dir)
 	fmt.Printf("%s 有 %d 个文件，一共 %.1f GB\n", dir, num, float64(sz)/1e9)
-
+	os.MkdirAll(filepath.Dir(seq), 0711)
 	dst, err := os.OpenFile(seq, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0644)
 	if err != nil {
 		return err
+	}
+
+	fi,err := os.Stat(dir)
+	if err != nil {
+		return err
+	}
+	if !fi.IsDir() {
+		return fmt.Errorf("%s 不是文件夹",dir)
 	}
 	err = dst.Truncate(10*1024*1024 + sz + num*20 + num*256)
 	if err != nil {
