@@ -4,8 +4,8 @@ import (
 	"sync"
 	"path/filepath"
 	"os"
-	"io/ioutil"
-	"fmt"
+	"sort"
+	"github.com/jimuyida/glog"
 )
 
 func walkDir(dir string, wg *sync.WaitGroup, fileSizes chan<- int64) {
@@ -23,14 +23,29 @@ func walkDir(dir string, wg *sync.WaitGroup, fileSizes chan<- int64) {
 
 //sema is a counting semaphore for limiting concurrency in dirents
 var sema = make(chan struct{}, 20)
+//按修改时间倒序
+//ioutil的按名称升序
+func ReadDir(dirname string) ([]os.FileInfo, error) {
+	f, err := os.Open(dirname)
+	if err != nil {
+		return nil, err
+	}
+	list, err := f.Readdir(-1)
+	f.Close()
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].ModTime().Nanosecond() > list[j].ModTime().Nanosecond() })
+	return list, nil
+}
 
 //读取目录dir下的文件信息
 func dirents(dir string) []os.FileInfo {
 	sema <- struct{}{}
 	defer func() { <-sema }()
-	entries, err := ioutil.ReadDir(dir)
+	entries, err := ReadDir(dir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "du: %v\n", err)
+		glog.Errorf("du: %v\n", err)
 		return nil
 	}
 	return entries
@@ -38,7 +53,7 @@ func dirents(dir string) []os.FileInfo {
 
 //输出文件数量的大小
 func printDiskUsage(nfiles, nbytes int64) {
-	fmt.Printf("%d files %.1f GB\n", nfiles, float64(nbytes)/1e9)
+	glog.Infof("%d files %.1f GB\n", nfiles, float64(nbytes)/1e9)
 }
 
 func GetFileSize(root string) (num int64,size int64){

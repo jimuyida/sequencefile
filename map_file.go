@@ -6,7 +6,7 @@ import (
 	"crypto/md5"
 	"io"
 	"github.com/satori/go.uuid"
-	"time"
+	"os"
 )
 
 type MmapStruct struct {
@@ -15,12 +15,14 @@ type MmapStruct struct {
 	locker      sync.Mutex
 	isFirstFile bool
 	sync        []byte
+	dir 		string
 }
 
-func NewMmapStruct(mmp MMAP.MMap) (*MmapStruct) {
+func NewMmapStruct(mmp MMAP.MMap,dir string) (*MmapStruct) {
 	return &MmapStruct{
 		mmap:        mmp,
 		isFirstFile: true,
+		dir:		dir,
 	}
 }
 
@@ -165,7 +167,10 @@ func (mmap *MmapStruct) Sync() (err error) {
 		//uid,err = uuid.FromString(boltInfo.CheckSum)
 		//fmt.Printf("UUIDv4: %s\n", uid)
 		w := md5.New()
-		io.WriteString(w, uid.String()+"@"+time.Now().Format("2006-01-02_03_04_05_PM")) //将str写入到w中
+
+		fi,_ := os.Stat(mmap.dir)
+
+		io.WriteString(w, uid.String()+"@"+fi.ModTime().Format("2006-01-02_03_04_05_PM")) //将str写入到w中
 		//md5str2: = fmt.Sprintf("%x", w.Sum(nil))  //w.Sum(nil)将w的hash转成[]byte格式
 		//fmt.Println(mdtstr2)
 		mmap.sync = make([]byte, 16)

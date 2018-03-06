@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"sync"
 	"path/filepath"
-	"io/ioutil"
 	"runtime"
 	"syscall"
+	"time"
+	"github.com/jimuyida/glog"
 )
 
 const (
@@ -26,7 +27,7 @@ type Header struct {
 	BlockCompression          bool //1字节
 	CompressionCodecClassName string
 	Metadata                  map[string]string
-	SyncMarker                string //16字节
+	//SyncMarker                string //16字节
 }
 
 type SequenceFile struct {
@@ -34,13 +35,16 @@ type SequenceFile struct {
 	header   *Header
 }
 
+
+
+
 //读取目录dir下的文件信息
 func (sequenceFile *SequenceFile) dirents(dir string) []os.FileInfo {
 	sema <- struct{}{}
 	defer func() { <-sema }()
-	entries, err := ioutil.ReadDir(dir)
+	entries, err := ReadDir(dir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "du: %v\n", err)
+		glog.Errorf("du: %v\n", err)
 		return nil
 	}
 	return entries
@@ -56,6 +60,7 @@ func (sequenceFile *SequenceFile) walkDir(dir string, subdir string, wg *sync.Wa
 		} else {
 			err := sequenceFile.writeFile(dir, filepath.Join(subdir, entry.Name()))
 			if err != nil {
+				glog.Error( err)
 				panic(err)
 			}
 		}
@@ -66,13 +71,15 @@ func (sequenceFile *SequenceFile) Dir2Seq(dir string,seq string) (error){
 	var wg sync.WaitGroup
 	wg.Add(1)
 	num, sz := GetFileSize(dir)
-	fmt.Printf("%s 有 %d 个文件，一共 %.1f GB\n", dir, num, float64(sz)/1e9)
+	glog.Infof("%s 有 %d 个文件，一共 %.1f GB\n", dir, num, float64(sz)/1e9)
 	os.MkdirAll(filepath.Dir(seq), 0711)
+
 	dst, err := os.OpenFile(seq, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0644)
 	if err != nil {
 		return err
 	}
 
+	defer dst.Close()
 	fi,err := os.Stat(dir)
 	if err != nil {
 		return err
@@ -80,6 +87,7 @@ func (sequenceFile *SequenceFile) Dir2Seq(dir string,seq string) (error){
 	if !fi.IsDir() {
 		return fmt.Errorf("%s 不是文件夹",dir)
 	}
+
 	err = dst.Truncate(10*1024*1024 + sz + num*20 + num*256)
 	if err != nil {
 		return err
@@ -100,10 +108,10 @@ func (sequenceFile *SequenceFile) Dir2Seq(dir string,seq string) (error){
 	sequenceFile.header.ValueCompression = false
 	sequenceFile.header.BlockCompression = false
 	sequenceFile.header.Metadata = make(map[string]string)
-	sequenceFile.header.Metadata["name"] = "name1"
+	//sequenceFile.header.Metadata["name"] = "name1"
 	sequenceFile.header.Metadata["dir"] = dir
-	sequenceFile.header.Metadata["value"] = "name.............................1"
-	sequenceFile.destFile = NewMmapStruct(dstMap)
+	//sequenceFile.header.Metadata["value"] = "name.............................1"
+	sequenceFile.destFile = NewMmapStruct(dstMap,dir)
 	err = sequenceFile.writeHeader()
 	if err != nil {
 		return err
@@ -120,7 +128,7 @@ func (sequenceFile *SequenceFile) Dir2Seq(dir string,seq string) (error){
 }
 
 func (sequenceFile *SequenceFile) writeFile(dir string, file string) (error){
-	fmt.Println(dir + "\\" + file)
+	glog.Info(dir + "\\" + file)
 	f, err := os.OpenFile(dir+"\\"+file, os.O_RDONLY, 0644)
 	defer f.Close()
 	mmap, err := MMAP.Map(f, MMAP.RDONLY, 0)
@@ -129,7 +137,7 @@ func (sequenceFile *SequenceFile) writeFile(dir string, file string) (error){
 	}
 	defer func() {
 		if err := mmap.Unmap(); err != nil {
-			fmt.Println("error unmapping: %s", err)
+			glog.Errorf( "error unmapping: %s", err)
 		}
 	}()
 	fi, err := f.Stat()
@@ -143,7 +151,7 @@ func (sequenceFile *SequenceFile) writeFile(dir string, file string) (error){
 			return err
 		}
 		if attributes&syscall.FILE_ATTRIBUTE_HIDDEN != 0 ||  attributes&syscall.FILE_ATTRIBUTE_SYSTEM != 0{
-			fmt.Printf("忽略隐藏与系统文件: %s\n", dir+"\\"+file)
+			glog.Infof( "忽略隐藏与系统文件: %s\n", dir+"\\"+file)
 			return nil
 		}
 	}
@@ -151,7 +159,7 @@ func (sequenceFile *SequenceFile) writeFile(dir string, file string) (error){
 	valLength := int(fi.Size())
 
 	if valLength == 0 {
-		fmt.Printf("忽略空文件: %s\n", dir+"\\"+file)
+		glog.Infof("忽略空文件: %s\n", dir+"\\"+file)
 		return nil
 		//return fmt.Errorf("")
 	}
@@ -187,6 +195,7 @@ func (sequenceFile *SequenceFile) writeFile(dir string, file string) (error){
 		if (BATCH_SIZE > (fi.Size() - i)) {
 			size = fi.Size() - i - 1
 		}
+		time.Sleep(time.Millisecond*100)
 		//fmt.Println("%d:%d",i,size)
 		err = sequenceFile.destFile.Write(mmap[i:i+size+1], true)
 		if err != nil {
@@ -232,9 +241,9 @@ func (sequenceFile *SequenceFile) writeHeader() (error){
 	if err != nil {
 		return err
 	}
-	err = sequenceFile.destFile.WriteString(sequenceFile.header.SyncMarker, true)
+	/*err = sequenceFile.destFile.WriteString(sequenceFile.header.SyncMarker, true)
 	if err != nil {
 		return err
-	}
+	}*/
 	return nil
 }
